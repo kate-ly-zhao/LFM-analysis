@@ -95,12 +95,13 @@ if __name__ == '__main__':
     # Optional - saving coordinate locations
     #np.save('coordinates.npy',coordinates)
 
+    # ------------------------------------------------------------------------------
     # Creating synthetic volumes 
     [A,B,C,D] = data.shape
     E = len(coordinates)
     total_vol = np.zeros((E,C,D,B))
 
-    # Getting coordinates
+    # If coordinates are in a separate file
     # coords = np.load(args.coords_file)
     factor = -3+3*13
     for i in range(0,3):
