@@ -53,7 +53,7 @@ if __name__ == '__main__':
     
     parser.add_argument('--volTmpSeq', type=str)
     parser.add_argument('--coordsFile',type=str)
-    parser.add_argument('--spotSigma',type=int,default=3)
+    parser.add_argument('--spotSigma',type=int,default=5)
     parser.add_argument('--outlineSigma',type=int,default=1)
     args= parser.parse_args()
 
@@ -68,12 +68,12 @@ if __name__ == '__main__':
     stdevs = np.std(LF,axis=0,dtype=np.float32)
 
     # Normalize range values and type before saving
-    mn = stdevs.min()
+    #mn = stdevs.min()
     mx = stdevs.max()
-    mx -= mn
-    stdevs = ((stdevs - mn)/mx) * 255
-    stdevs = stdevs.astype(np.uint8)
-
+    #mx -= mn
+    stdevs = stdevs / mx * 255 #stdevs = ((stdevs - mn)/mx) * 255
+    stdevs = stdevs.round().astype(np.uint8) #stdevs = stdevs.astype(np.uint8)
+    
     # Expanding an extra dimension to make reconstruction easy
     stdevs = np.expand_dims(stdevs, 0)
 
@@ -123,7 +123,7 @@ if __name__ == '__main__':
         volTmp=255*volTmp/maxVal #normalization to match uint8
         volTmpSeq_[j]=volTmp
             
-    scipy.io.savemat('volTmpSeq_stdev.mat', mdict={'volTmpSeq_':volTmpSeq_.cpu().numpy()})
+    #scipy.io.savemat('volTmpSeq_stdev.mat', mdict={'volTmpSeq_':volTmpSeq_.cpu().numpy()})
     volTmpSeq_ = volTmpSeq_.cpu().numpy()
 
     # ---------- neuron finding/segmentation ----------
@@ -188,7 +188,7 @@ if __name__ == '__main__':
         coordinates.append(temp_coord)
     print(coordinates)
 
-    np.save('coordinates_stdev.npy',coordinates)
+    #np.save('coordinates_stdev.npy',coordinates)
 
     # ---------- creating synthetic volumes ----------
 
@@ -214,7 +214,7 @@ if __name__ == '__main__':
         vol = vol.astype(np.uint8)
         total_vol[i,:,:,:] = vol
     
-    np.save('synth_LFvol_stdev.npy',total_vol)
+    #np.save('synth_LFvol_stdev.npy',total_vol)
 
     # ---------- passing synthetic volumes through forward model to make LF footprints
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -271,7 +271,7 @@ if __name__ == '__main__':
         lfTmp_ = np.squeeze(lfTmp_)        
         LFfootprints[i,:,:,:] = lfTmp_
         
-    np.save('lfSeq_all_stdev.npy', LFfootprints)
+    #np.save('lfSeq_all_stdev.npy', LFfootprints)
 
     # ---------- finding time sequence ----------
     # SVD to remove background?
@@ -288,6 +288,15 @@ if __name__ == '__main__':
     A,B,C = LFout.shape
     LFout = np.reshape(LFout,(A*B,C),order='F')
     
+    # SVD to remove the background
+    U, S, Vh = np.linalg.svd(LFout,full_matrices=False)
+    del LFout
+
+    bg_ratio = 0.9
+    S[0] = (1-bg_ratio)*S[0]
+    LF_new = np.dot(U * S, Vh)
+
+    # Getting the neurons now
     #neurs = np.load(args.fileLFSeq)
     neurs = LFfootprints
     
@@ -308,12 +317,45 @@ if __name__ == '__main__':
     T = np.matmul(N_pinv,LFout)
 
     X,Y = T.shape
-    for i in range(0,X):
-        plt.plot(range(0,Y),T[i,:])
-    plt.savefig('TimeSeq.png',bbox_inches='tight')
-    np.save('timeSeq.npy',T)
+    #for i in range(0,X):
+    #    plt.plot(range(0,Y),T[i,:])
+    #plt.savefig('TimeSeq.png',bbox_inches='tight')
+    #np.save('timeSeq.npy',T)
 
     # ---------- comparing with fully reconstructed time sequence/"ground truth" ----------
+    # aka plotting pretty things
+    timeDerivLF = np.zeros(X)
+    for i in range(0,X):
+        #tempT = scipy.signal.detrend(T[i,:],type='linear')
+        tempT = np.gradient(T[i,:])
+        #plt.plot(range(0,Y),tempT,'g-',linewidth=0.5)
+        timeDerivLF[i] = np.max(tempT)-np.min(tempT)
+    timeDeriv_idx = np.argsort(-timeDerivLF)
 
+
+    # --------------------Pretty plots now
+
+    [A,B,C,D] = volTmpSeq_.shape
+    vol = volTmpSeq_[:,:,3*13+1:C-3*13,3*13+1:D-3*13]
+
+    fig, ax = plt.subplots(10,1,figsize=(6,20))
+    for i in range(0,10):
+        idx = timeDeriv_idx[i]
+        coords_tmp = coordinates[idx]
+        coords_tmp = coords_tmp.flatten()
+        ts_tmp = np.mean(vol[:,coords_tmp[0]:coords_tmp[1],coords_tmp[2]:coords_tmp[3],coords_tmp[4]:coords_tmp[5]],axis=(1,2,3))
+        ts_tmp = (ts_tmp-min(ts_tmp))/(max(ts_tmp)-min(ts_tmp))
+        ts_mtrx = T[idx,:]
+        ts_mtrx = (ts_mtrx-min(ts_mtrx))/(max(ts_mtrx)-min(ts_mtrx))
+                
+        ax[i].plot(range(0,Y),ts_tmp,'b-',linewidth=0.65,label='ROI-based')
+        ax[i].plot(range(0,Y),ts_mtrx,'r-',linewidth=0.65,label='Matrix-based')
+        ax[i].set_xlabel('Time Index',fontsize=10)
+        ax[i].tick_params(axis='both', which='major', labelsize=10)
+
+    ax[0].legend(loc='upper left') 
+    fig.tight_layout()
+
+    plt.savefig('S2A3_TimeSeq_.png',bbox_inches='tight')
         
     
